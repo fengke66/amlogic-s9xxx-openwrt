@@ -375,7 +375,7 @@ jobs:
           removeArtifacts: false
           replacesArtifacts: true
           makeLatest: true
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ openwrt }}
 
       - name: Package OpenWrt for target boards
         if: ${{ steps.imagebuilder.outputs.status == 'success' && !cancelled() }}
