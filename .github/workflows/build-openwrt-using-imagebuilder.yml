@@ -7,7 +7,8 @@
 #=====================================================================================
 
 name: Build OpenWrt using ImageBuilder
-
+permissions:
+  contents: write
 on:
   repository_dispatch:
   workflow_dispatch:
@@ -15,7 +16,7 @@ on:
       releases_branch:
         description: "Select the releases branch"
         required: false
-        default: "immortalwrt:24.10.5"
+        default: "immortalwrt:24.10.6"
         type: choice
         options:
           - openwrt:25.12.1
