@@ -1,0 +1,351 @@
+name: 🚀 TX8 Max 集成QCA9377编译
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_type:
+        description: '选择源码分支'
+        required: true
+        default: 'ophub'
+        type: choice
+        options:
+          - ophub
+          - immortalwrt
+          - openwrt
+          - lede
+          - kenzok8
+      
+      kernel_version:
+        description: '选择内核版本'
+        required: true
+        default: '6.1.y'
+        type: choice
+        options:
+          - '5.10.y'
+          - '5.15.y'
+          - '6.1.y'
+          - '6.6.y'
+      
+      default_ip:
+        description: '设置默认IP地址'
+        required: true
+        default: '192.168.1.2'
+        type: string
+      
+      gateway_ip:
+        description: '设置网关IP'
+        required: true
+        default: '192.168.1.1'
+        type: string
+      
+      enable_docker:
+        description: '是否包含Docker'
+        required: true
+        default: true
+        type: boolean
+      
+      enable_nikki:
+        description: '是否包含Nikki(Clash)'
+        required: true
+        default: true
+        type: boolean
+      
+      enable_daed:
+        description: '是否包含Daed(DNS加密)'
+        required: true
+        default: true
+        type: boolean
+      
+      enable_network_accel:
+        description: '是否包含网络加速'
+        required: true
+        default: true
+        type: boolean
+      
+      enable_wifi:
+        description: '是否包含集成QCA9377 WiFi'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential libncurses5-dev gawk git libssl-dev gettext zlib1g-dev swig unzip time python3 python3-distutils file wget curl rsync device-tree-compiler
+
+      - name: Prepare DTB with QCA9377 support
+        run: |
+          mkdir -p files/boot/dtb/amlogic
+          
+          # 下载原始DTB
+          wget -O meson-gxm-tx8-max.dtb \
+            https://raw.githubusercontent.com/ophub/amlogic-s9xxx-openwrt/main/amlogic-s9xxx/amlogic-dtb/meson-gxm-tx8-max.dtb
+          
+          # 反编译DTB
+          dtc -I dtb -O dts -o meson-gxm-tx8-max.dts meson-gxm-tx8-max.dtb
+          
+          # 添加QCA9377 SDIO节点（如果DTB中没有）
+          if ! grep -q "qca9377" meson-gxm-tx8-max.dts; then
+            sed -i '/\/ {/a\
+            wifi: wifi@1 {\
+                compatible = "qcom,qca9377";\
+                reg = <0x1>;\
+                bus-width = <4>;\
+                non-removable;\
+                cap-sdio-irq;\
+                keep-power-in-suspend;\
+                status = "okay";\
+            };' meson-gxm-tx8-max.dts
+          fi
+          
+          # 重新编译DTB
+          dtc -I dts -O dtb -o files/boot/dtb/amlogic/meson-gxm-tx8-max.dtb meson-gxm-tx8-max.dts
+          
+          echo "DTB已添加QCA9377支持"
+
+      - name: Clone source code
+        run: |
+          case "${{ github.event.inputs.source_type }}" in
+            ophub)
+              echo "使用 ophub/amlogic-s9xxx-openwrt 源码"
+              git clone https://github.com/ophub/amlogic-s9xxx-openwrt.git
+              cd amlogic-s9xxx-openwrt
+              ;;
+            immortalwrt)
+              echo "使用 immortalwrt/immortalwrt 源码"
+              git clone https://github.com/immortalwrt/immortalwrt.git
+              cd immortalwrt
+              git clone https://github.com/ophub/amlogic-s9xxx-openwrt.git ophub
+              cp -r ophub/amlogic-s9xxx/* ./
+              ;;
+            openwrt)
+              echo "使用 openwrt/openwrt 官方源码"
+              git clone https://github.com/openwrt/openwrt.git
+              cd openwrt
+              git clone https://github.com/ophub/amlogic-s9xxx-openwrt.git ophub
+              cp -r ophub/amlogic-s9xxx/* ./
+              ;;
+            lede)
+              echo "使用 coolsnowwolf/lede 源码"
+              git clone https://github.com/coolsnowwolf/lede.git
+              cd lede
+              git clone https://github.com/ophub/amlogic-s9xxx-openwrt.git ophub
+              cp -r ophub/amlogic-s9xxx/* ./
+              ;;
+            kenzok8)
+              echo "使用 kenzok8/openwrt-packages 源码"
+              git clone https://github.com/kenzok8/openwrt-packages.git
+              cd openwrt-packages
+              git clone https://github.com/ophub/amlogic-s9xxx-openwrt.git ophub
+              cp -r ophub/amlogic-s9xxx/* ./
+              ;;
+          esac
+
+      - name: Add 第三方软件源
+        run: |
+          mkdir -p files/etc/opkg
+          cat > files/etc/opkg/customfeeds.conf << 'EOF'
+          src/gz openwrt_kiddin9 https://op.supes.top/packages/aarch64_cortex-a53
+          src/gz openwrt_lienol https://github.com/Lienol/openwrt-package/raw/main/packages/aarch64_cortex-a53
+          EOF
+
+      - name: Add 旁路由配置
+        run: |
+          mkdir -p files/etc/config
+          
+          cat > files/etc/config/network << 'EOF'
+config interface 'loopback'
+    option ifname 'lo'
+    option proto 'static'
+    option ipaddr '127.0.0.1'
+    option netmask '255.0.0.0'
+
+config globals 'globals'
+    option ula_prefix 'fd00::/48'
+
+config interface 'lan'
+    option type 'bridge'
+    option ifname 'eth0'
+    option proto 'static'
+    option ipaddr '${{ github.event.inputs.default_ip }}'
+    option netmask '255.255.255.0'
+    option gateway '${{ github.event.inputs.gateway_ip }}'
+    option dns '${{ github.event.inputs.gateway_ip }}'
+    option ip6assign '60'
+
+config interface 'wan'
+    option ifname 'eth0'
+    option proto 'dhcp'
+EOF
+
+          cat > files/etc/config/firewall << 'EOF'
+config defaults
+    option syn_flood '1'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'REJECT'
+    option flow_offloading '1'
+    option flow_offloading_hw '1'
+    option fullcone '1'
+
+config zone
+    option name 'lan'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'ACCEPT'
+    option network 'lan'
+    option fullcone '1'
+
+config zone
+    option name 'wan'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'REJECT'
+    option masq '1'
+    option mtu_fix '1'
+    option network 'wan'
+    option fullcone '1'
+
+config forwarding
+    option src 'lan'
+    option dest 'wan'
+EOF
+
+          cat > files/etc/sysctl.d/99-network-optimize.conf << 'EOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_max=134217728
+net.core.wmem_max=134217728
+net.core.rmem_default=16777216
+net.core.wmem_default=16777216
+net.ipv4.tcp_rmem=4096 87380 134217728
+net.ipv4.tcp_wmem=4096 65536 134217728
+net.ipv4.tcp_fastopen=3
+net.ipv4.tcp_slow_start_after_idle=0
+net.ipv4.tcp_mtu_probing=1
+net.ipv4.tcp_sack=1
+net.ipv4.tcp_window_scaling=1
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_fin_timeout=30
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_max_syn_backlog=8192
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_syn_retries=2
+net.ipv4.tcp_synack_retries=2
+net.netfilter.nf_conntrack_max=65535
+net.netfilter.nf_conntrack_tcp_timeout_established=7200
+net.netfilter.nf_conntrack_tcp_timeout_time_wait=120
+net.netfilter.nf_conntrack_tcp_timeout_close_wait=60
+net.netfilter.nf_conntrack_tcp_timeout_fin_wait=60
+net.core.netdev_budget=600
+net.core.netdev_budget_usecs=4000
+net.core.dev_weight=64
+net.ipv4.ip_forward=1
+net.ipv4.conf.all.forwarding=1
+net.ipv4.neigh.default.gc_thresh1=128
+net.ipv4.neigh.default.gc_thresh2=512
+net.ipv4.neigh.default.gc_thresh3=1024
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.icmp_ignore_bogus_error_responses=1
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
+EOF
+
+          mkdir -p files/etc/docker
+          cat > files/etc/docker/daemon.json << 'EOF'
+{
+    "data-root": "/mnt/sda1/docker",
+    "storage-driver": "overlay2",
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+    },
+    "registry-mirrors": [
+        "https://docker.mirrors.ustc.edu.cn",
+        "https://hub-mirror.c.163.com"
+    ]
+}
+EOF
+
+      - name: Build firmware
+        run: |
+          export KERNEL_VERSION="${{ github.event.inputs.kernel_version }}"
+          export ARCH="arm64"
+          export SOC="s912"
+          export BOX="tx8-max"
+          export DTB="meson-gxm-tx8-max.dtb"
+          export KERNEL_AUTO_LATEST="true"
+          export ROOTFS_TYPE="ext4"
+          export SIZE_ROOTFS="1024"
+          export SWAP_SIZE="512"
+          
+          # 基础插件
+          PACKAGES="luci luci-ssl luci-i18n-base-zh-cn \
+                   luci-app-ttyd luci-app-statistics \
+                   luci-app-firewall luci-app-nlbwmon \
+                   luci-app-upnp luci-app-watchdog \
+                   curl wget vim-full htop bash coreutils"
+          
+          # Docker
+          if [ "${{ github.event.inputs.enable_docker }}" = "true" ]; then
+            PACKAGES="$PACKAGES docker docker-compose luci-app-dockerman luci-lib-docker kmod-docker"
+          fi
+          
+          # Nikki (Clash)
+          if [ "${{ github.event.inputs.enable_nikki }}" = "true" ]; then
+            PACKAGES="$PACKAGES nikki luci-app-nikki"
+          fi
+          
+          # Daed (DNS加密)
+          if [ "${{ github.event.inputs.enable_daed }}" = "true" ]; then
+            PACKAGES="$PACKAGES daed luci-app-daed"
+          fi
+          
+          # 网络加速
+          if [ "${{ github.event.inputs.enable_network_accel }}" = "true" ]; then
+            PACKAGES="$PACKAGES kmod-nf-conntrack kmod-nf-conntrack-netlink \
+                     kmod-nf-conntrack6 kmod-nf-flow kmod-nft-fullcone \
+                     kmod-fast-classifier kmod-shortcut-fe kmod-shortcut-fe-cm \
+                     luci-app-flowoffload luci-app-shortcut-fe kmod-tcp-bbr \
+                     mwan3 luci-app-mwan3 sqm luci-app-sqm \
+                     tcpdump iperf3 mtr traceroute nmap \
+                     bind-dig bind-host bind-libs"
+          fi
+          
+          # 集成QCA9377 WiFi驱动
+          if [ "${{ github.event.inputs.enable_wifi }}" = "true" ]; then
+            PACKAGES="$PACKAGES \
+              kmod-ath10k-ct \              # ath10k驱动
+              ath10k-firmware-qca9377 \     # QCA9377固件
+              hostapd \                     # AP模式
+              wpad-basic \                  # WPA加密
+              iw iwconfig \                 # WiFi管理工具
+              wireless-tools \              # 无线工具
+              kmod-mmc \                    # SDIO接口支持
+              kmod-sdhci \                  # SDHCI控制器
+              kmod-sdhci-pltfm"             # SDHCI平台驱动
+          fi
+          
+          # 文件系统支持
+          PACKAGES="$PACKAGES kmod-usb-storage kmod-usb-storage-extras \
+                   kmod-fs-ext4 kmod-fs-vfat kmod-fs-exfat kmod-fs-ntfs3"
+          
+          export PACKAGES
+          
+          sudo ./build_kernel.sh
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: tx8-max-固件-${{ github.event.inputs.source_type }}-${{ github.event.inputs.kernel_version }}
+          path: |
+            output/
+            amlogic-s9xxx-openwrt/output/

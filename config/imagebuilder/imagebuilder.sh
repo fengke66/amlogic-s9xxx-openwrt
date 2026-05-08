@@ -103,9 +103,6 @@ adjust_settings() {
         error_msg "No .config file found in [ ${download_file} ]."
     fi
 
-    # For other files
-    # ......
-
     sync && sleep 3
     echo -e "${INFO} [ ${imagebuilder_path} ] directory contents: \n$(ls -lh . 2>/dev/null)"
 }
@@ -134,8 +131,35 @@ custom_packages() {
         [[ "${?}" -eq "0" ]] && echo -e "${INFO} The [ ${plugin_url} ] is downloaded successfully."
     done
 
-    # Download other luci-app-xxx
-    # ......
+    # Download latest DAED (dae + luci-app-daed)
+    echo -e "${INFO} Downloading latest DAED (dae + luci-app-daed)..."
+    dae_api="https://api.github.com/repos/daeuniverse/dae/releases/latest"
+    daed_api="https://api.github.com/repos/daeuniverse/daed/releases/latest"
+
+    dae_urls=($(curl -s ${dae_api} | grep browser_download_url | grep '\.ipk' | cut -d '"' -f 4))
+    for url in "${dae_urls[@]}"; do
+        curl -fsSOJL "$url" && echo -e "${INFO} Downloaded: $url"
+    done
+
+    daed_urls=($(curl -s ${daed_api} | grep browser_download_url | grep '\.ipk' | cut -d '"' -f 4))
+    for url in "${daed_urls[@]}"; do
+        curl -fsSOJL "$url" && echo -e "${INFO} Downloaded: $url"
+    done
+
+    # Download latest SmartDNS + LuCI
+    echo -e "${INFO} Downloading latest SmartDNS..."
+    smartdns_api="https://api.github.com/repos/pymumu/smartdns/releases/latest"
+    luci_smartdns_api="https://api.github.com/repos/pymumu/luci-app-smartdns/releases/latest"
+
+    smartdns_urls=($(curl -s ${smartdns_api} | grep browser_download_url | grep '\ .ipk' | cut -d '"' -f 4))
+    for url in "${smartdns_urls[@]}"; do
+        curl -fsSOJL "$url" && echo -e "${INFO} Downloaded: $url"
+    done
+
+    luci_smartdns_urls=($(curl -s ${luci_smartdns_api} | grep browser_download_url | grep '\.ipk' | cut -d '"' -f 4))
+    for url in "${luci_smartdns_urls[@]}"; do
+        curl -fsSOJL "$url" && echo -e "${INFO} Downloaded: $url"
+    done
 
     # Remove the packages that are not needed based on the Image Builder type (APK or OPKG)
     if grep -q "CONFIG_USE_APK=y" ../.config; then
@@ -208,14 +232,20 @@ rebuild_firmware() {
         jshn kmod-brcmfmac kmod-brcmutil kmod-cfg80211 kmod-mac80211 libjson-script liblucihttp \
         liblucihttp-lua losetup lsattr lsblk lscpu mkf2fs mount-utils openssl-util parted \
         perl-http-date perlbase-file perlbase-getopt perlbase-time perlbase-unicode perlbase-utf8 \
-        pigz ppp ppp-mod-pppoe pv rename resize2fs runc tar tini ttyd tune2fs \
+        pigz pv rename resize2fs runc tar tini ttyd tune2fs \
         uclient-fetch uhttpd uhttpd-mod-ubus unzip uqmi usb-modeswitch uuidgen wget-ssl whereis \
         which wpad-basic wwan xfs-fsck xfs-mkfs xz xz-utils ziptool zoneinfo-asia zoneinfo-core zstd \
+        \
+        # WiFi: QCA9377 (ath10k-sdio) \
+        kmod-ath10k kmod-ath10k-sdio ath10k-firmware-qca9377 \
+        \
+        # DAED + SmartDNS \
+        dae luci-app-daed smartdns luci-app-smartdns \
         \
         luci luci-base luci-compat luci-i18n-base-zh-cn luci-lib-base \
         luci-lib-ip luci-lib-ipkg luci-lib-jsonc luci-lib-nixio luci-mod-admin-full luci-mod-network \
         luci-mod-status luci-mod-system luci-proto-3g luci-proto-ipip luci-proto-ipv6 \
-        luci-proto-ncm luci-proto-openconnect luci-proto-ppp luci-proto-qmi luci-proto-relay \
+        luci-proto-ncm luci-proto-openconnect luci-proto-qmi luci-proto-relay \
         \
         luci-app-amlogic luci-i18n-amlogic-zh-cn \
         \

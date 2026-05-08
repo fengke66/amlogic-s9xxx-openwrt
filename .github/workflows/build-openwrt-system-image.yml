@@ -5,24 +5,24 @@
 
 name: Build OpenWrt system image
 
-on:
+于:
   repository_dispatch:
   workflow_dispatch:
     inputs:
       source_branch:
         description: "Select the source branch"
         required: false
-        default: "openwrt_main"
-        type: choice
+        默认: "openwrt_main"
+        输入: choice
         options:
           - openwrt_main
           - lede_master
-          - immortalwrt_master
+          - immortalwrt_openwrt-24.10
       openwrt_board:
         description: "Select device board"
         required: false
-        default: "s912-tx8-max"
-        type: choice
+        默认: "s912-tx8-max"
+        输入: choice
         options:
           - all
           - amlogic
