@@ -13,10 +13,10 @@ on:
   workflow_dispatch:
     inputs:
       releases_branch:
-        description: "Select the releases branch"
-        required: false
+        description: "手动输入版本号"
+        required: true
         default: "immortalwrt:24.10.6"
-        type: choice
+        type: string
         options:
           - openwrt:25.12.1
           - openwrt:25.12.0
