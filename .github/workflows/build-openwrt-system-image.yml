@@ -5,7 +5,6 @@
 
 name: Build OpenWrt system image
 
-于:
   repository_dispatch:
   workflow_dispatch:
     inputs:
